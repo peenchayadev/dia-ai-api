@@ -4,6 +4,11 @@ import { swagger } from "@elysiajs/swagger"
 import { lineRouter } from "./modules/line/line.controller"
 import { authRouter } from "./modules/auth/auth.controller"
 import { glucoseRouter } from "./modules/glucose/glucose.controller"
+import { appointmentRouter } from "./modules/appointment/appointment.controller"
+import { foodRouter } from "./modules/food/food.controller"
+import { historyRouter } from "./modules/history/history.controller"
+import { labRouter } from "./modules/lab/lab.controller"
+import { initAppointmentRemindersCron } from "./cron/appointment-reminders.cron"
 
 const PORT = process.env.PORT || Bun.env.PORT || 3001
 
@@ -36,9 +41,16 @@ export const app = new Elysia()
   .use(lineRouter)
   .use(authRouter)
   .use(glucoseRouter)
+  .use(appointmentRouter)
+  .use(foodRouter)
+  .use(historyRouter)
+  .use(labRouter)
 
   .listen(PORT)
 
-  console.log(
-    `DIA-AI Backend running on :${PORT}`
-  )
+// Initialize cron jobs
+initAppointmentRemindersCron()
+
+console.log(
+  `DIA-AI Backend running on :${PORT}`
+)

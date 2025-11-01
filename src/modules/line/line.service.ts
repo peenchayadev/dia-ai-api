@@ -1,13 +1,9 @@
 import dayjs from 'dayjs'
+import { buffer as streamToBuffer } from 'node:stream/consumers'
 import { prisma } from '../../prisma/client'
 import type { WebhookEvent } from '@line/bot-sdk'
 import { lineClient, replyMessage } from './line.client'
-import { 
-	analyzeImage, 
-	analyzeTextFromUser, 
-	getDiabetesAnswer, 
-	transcribeAudioWithGoogle 
-} from '../gemini/gemini.service'
+import { analyzeImage, analyzeTextFromUser, getDiabetesAnswer, transcribeAudioWithGoogle } from '../gemini/gemini.service'
 import { toHumanTiming, toNum } from '../../utils/globals'
 import type { AnalysisQuestion, AnalysisResult, AppUser } from './line.type'
 import { UploadImage } from '../../utils/storage'
@@ -77,8 +73,10 @@ export async function handleLineEvents(event: WebhookEvent) {
 				const analysis = await analyzeTextFromUser(event.message.text)
 				await handleTextMessageLogic(analysis, replyToken, user)
 				break
-			case 'audio':
-				const audioBuffer = await lineClient.getMessageContent(event.message.id)
+			case 'audio': {
+				const audioStream = await lineClient.getMessageContent(event.message.id)
+				// Convert stream to buffer for audio processing
+				const audioBuffer = await streamToBuffer(audioStream)
 				const transcribedText = await transcribeAudioWithGoogle(audioBuffer)
 				if (transcribedText) {
 					const textAnalysis = await analyzeTextFromUser(transcribedText)
@@ -87,8 +85,13 @@ export async function handleLineEvents(event: WebhookEvent) {
 					await replyMessage(replyToken, 'ขออภัยค่ะ เกิดข้อผิดพลาดในการแปลเสียงเป็นข้อความ')
 				}
 				break
+			}
 			case 'image': {
-				const imageBuffer = await lineClient.getMessageContent(event.message.id)
+				const imageStream = await lineClient.getMessageContent(event.message.id)
+				// Convert stream to buffer once and reuse it
+				const imageBuffer = await streamToBuffer(imageStream)
+				console.log(`📸 Image buffer size: ${imageBuffer.length} bytes`)
+				
 				const imageAnalysis = await analyzeImage(imageBuffer)
 
 				switch (imageAnalysis.image_type) {
@@ -120,21 +123,57 @@ export async function handleLineEvents(event: WebhookEvent) {
 					case 'lab_result': {
 						if (imageAnalysis.fasting_glucose || imageAnalysis.hba1c) {
 							const labImageUrl = await UploadImage(imageBuffer, user.id)
-							await prisma.labResult.create({
-								data: {
-									user: { connect: { id: user.id } },
-									fastingGlucose: imageAnalysis.fasting_glucose,
-									hba1c: imageAnalysis.hba1c,
-									normalRangeMin: imageAnalysis.normal_range_min,
-									normalRangeMax: imageAnalysis.normal_range_max,
-									fastingGlucoseUnit: imageAnalysis.normal_range_unit,
-									hba1cUnit: imageAnalysis.hba1c_unit,
-									recordDate: imageAnalysis.record_date ? new Date(imageAnalysis.record_date) : new Date(),
-									media: {
-										create: [{ url: labImageUrl }]
-									}
-								}
-							})
+							const testDate = imageAnalysis.record_date ? new Date(imageAnalysis.record_date) : new Date()
+							
+							// Create lab results for each available test
+							// Each result gets its own Media record with the same URL
+							const labResults = []
+							
+							// Fasting Glucose
+							if (imageAnalysis.fasting_glucose) {
+								const referenceRange = imageAnalysis.normal_range_min && imageAnalysis.normal_range_max 
+									? `${imageAnalysis.normal_range_min}-${imageAnalysis.normal_range_max}`
+									: '70-99'
+								
+								labResults.push(
+									prisma.labResult.create({
+										data: {
+											user: { connect: { id: user.id } },
+											type: 'Fasting Glucose',
+											value: imageAnalysis.fasting_glucose,
+											unit: imageAnalysis.normal_range_unit || 'mg/dL',
+											referenceRange,
+											testDate,
+											note: 'วิเคราะห์จากรูปภาพ',
+											media: {
+												create: [{ url: labImageUrl }]
+											}
+										}
+									})
+								)
+							}
+							
+							// HbA1c
+							if (imageAnalysis.hba1c) {
+								labResults.push(
+									prisma.labResult.create({
+										data: {
+											user: { connect: { id: user.id } },
+											type: 'HbA1c',
+											value: imageAnalysis.hba1c,
+											unit: imageAnalysis.hba1c_unit || '%',
+											referenceRange: '4.0-5.6',
+											testDate,
+											note: 'วิเคราะห์จากรูปภาพ',
+											media: {
+												create: [{ url: labImageUrl }]
+											}
+										}
+									})
+								)
+							}
+							
+							await Promise.all(labResults)
 							await replyMessage(replyToken, 'บันทึกข้อมูลผลตรวจเลือดของคุณเรียบร้อยแล้วค่ะ 🩺')
 						} else {
 							await replyMessage(replyToken, 'ขออภัยค่ะ ฉันไม่สามารถหาข้อมูลค่าน้ำตาลหรือค่า HbA1c จากรูปภาพนี้ได้')
@@ -166,10 +205,13 @@ export async function handleLineEvents(event: WebhookEvent) {
 							const displayStartTime = imageAnalysis.start_time
 							const displayEndTime = imageAnalysis.end_time
 
-							await replyMessage(
-								replyToken,
-								`บันทึกนัดหมายวันที่ ${displayDate} เวลา ${displayStartTime} - ${displayEndTime} น. เรียบร้อยแล้วค่ะ 🗓️`
-							)
+							let timeText = displayStartTime
+
+							if (displayEndTime) {
+								timeText += ` - ${displayEndTime}`
+							}
+
+							await replyMessage(replyToken, `บันทึกนัดหมายวันที่ ${displayDate} เวลา ${timeText} น. เรียบร้อยแล้วค่ะ 🗓️`)
 						} else {
 							await replyMessage(replyToken, 'ขออภัยค่ะ ฉันไม่สามารถหาข้อมูลวันที่และเวลาที่ชัดเจนจากใบนัดนี้ได้')
 						}

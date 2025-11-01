@@ -18,15 +18,16 @@ enum MealPeriod {
 }
 
 model User {
-  id            Int            @id @default(autoincrement())
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  lineUserId    String         @unique
-  glucoseLogs   GlucoseLog[]
-  labResults    LabResult[]
-  appointments  Appointment[]
-  foodAnalyses  FoodAnalysis[]
-  settings      UserSetting?
+  id                 Int                 @id @default(autoincrement())
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  lineUserId         String              @unique
+  glucoseLogs        GlucoseLog[]
+  labResults         LabResult[]
+  appointments       Appointment[]
+  foodAnalyses       FoodAnalysis[]
+  settings           UserSetting?
+  notificationLogs   NotificationLog[]
 }
 
 model Media {
@@ -35,7 +36,7 @@ model Media {
   createdAt DateTime @default(now())
 
   labResult   LabResult?    @relation(fields: [labResultId], references: [id])
-  labResultId Int?          @unique
+  labResultId String?       @unique
 
   appointment   Appointment?  @relation(fields: [appointmentId], references: [id])
   appointmentId Int?          @unique
@@ -66,35 +67,36 @@ model UserSetting {
 }
 
 model LabResult {
-  id         Int      @id @default(autoincrement())
-  createdAt  DateTime @default(now())
-  userId     Int
-  user       User     @relation(fields: [userId], references: [id])
-  media      Media[]
-  fastingGlucose Float?
-  hba1c          Float?
-  recordDate     DateTime?
-  normalRangeMin    Int?
-  normalRangeMax    Int?
-  fastingGlucoseUnit String?
-  hba1cUnit String?
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id])
+  media          Media[]
+  type           String   // e.g., "HbA1c", "Fasting Glucose", "Total Cholesterol"
+  value          Float
+  unit           String   // e.g., "%", "mg/dL", "mmol/L"
+  referenceRange String?  // e.g., "4.0-5.6%", "70-99 mg/dL"
+  testDate       DateTime
+  note           String?
 }
 
 model Appointment {
-  id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  media     Media[]
-  appointmentDate DateTime?
-  startTime       String?
-  endTime         String?
-  doctorName      String?
-  hospitalName    String?
-  fullName        String?
-  age             String?
-  reason          String?
-  details         String?
+  id                 Int                 @id @default(autoincrement())
+  createdAt          DateTime            @default(now())
+  userId             Int
+  user               User                @relation(fields: [userId], references: [id])
+  media              Media[]
+  notificationLogs   NotificationLog[]
+  appointmentDate    DateTime?
+  startTime          String?
+  endTime            String?
+  doctorName         String?
+  hospitalName       String?
+  fullName           String?
+  age                String?
+  reason             String?
+  details            String?
 }
 
 model FoodAnalysis {
@@ -106,4 +108,22 @@ model FoodAnalysis {
   carbsGram  Float?
   sugarGram  Float?
   advice     String?
+}
+
+model NotificationLog {
+  id               Int         @id @default(autoincrement())
+  createdAt        DateTime    @default(now())
+  userId           Int
+  user             User        @relation(fields: [userId], references: [id])
+  appointmentId    Int
+  appointment      Appointment @relation(fields: [appointmentId], references: [id])
+  notificationType String      // "3_DAY_REMINDER" | "SAME_DAY_REMINDER"
+  sentAt           DateTime    @default(now())
+  success          Boolean     @default(true)
+  errorMessage     String?
+  retryCount       Int         @default(0)
+
+  @@unique([appointmentId, notificationType])
+  @@index([userId])
+  @@index([appointmentId])
 }

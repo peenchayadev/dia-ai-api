@@ -1,19 +1,30 @@
 import Elysia, { t } from "elysia"
-import { generateJWT, verifyLineToken, getTokenExpiryInfo } from "./auth.service"
+import { generateJWT, verifyLineToken, verifyLineUser, getTokenExpiryInfo } from "./auth.service"
 
 export const authRouter = new Elysia({ prefix: '/auth' })
   .post('/line-verify', 
     async ({ body, set }) => {
       try {
-        const { accessToken } = body
-        const lineUser = await verifyLineToken(accessToken)
-
+        const { lineUserId, displayName, pictureUrl } = body
         
+        if (!lineUserId || !displayName) {
+          console.error('❌ Missing required LINE user data')
+          set.status = 400
+          return { 
+            success: false,
+            error: 'LINE user ID and display name are required' 
+          }
+        }
+        
+        console.log(`🔍 Verifying LINE user: ${lineUserId}`)
+        const lineUser = await verifyLineUser(lineUserId, displayName, pictureUrl)
+
         if (!lineUser) {
+          console.error('❌ LINE user verification failed')
           set.status = 401
           return { 
             success: false,
-            error: 'Invalid or expired LINE ID token. Please login again.' 
+            error: 'LINE user verification failed. Please try again.' 
           }
         }
 
@@ -31,7 +42,7 @@ export const authRouter = new Elysia({ prefix: '/auth' })
           }
         }
       } catch (error) {
-        console.error('LINE token verification error:', error)
+        console.error('LINE user verification error:', error)
         set.status = 500
         return { 
           success: false,
@@ -41,7 +52,9 @@ export const authRouter = new Elysia({ prefix: '/auth' })
     },
     {
       body: t.Object({
-        accessToken: t.String()
+        lineUserId: t.String(),
+        displayName: t.String(),
+        pictureUrl: t.Optional(t.String())
       })
     }
   )

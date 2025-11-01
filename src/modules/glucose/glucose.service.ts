@@ -241,3 +241,95 @@ export async function deleteGlucoseLog(glucoseId: string, lineUserId: string) {
 
   return { success: true }
 }
+
+export interface GlucoseHistoryPoint {
+  date: string
+  value: number
+  count: number
+  status: GlucoseLevel
+}
+
+export async function getGlucoseHistory(
+  lineUserId: string, 
+  days: number = 30, 
+  type: 'daily' | 'weekly' | 'monthly' = 'daily'
+): Promise<GlucoseHistoryPoint[]> {
+  // Get user from database
+  const user = await prisma.user.findUnique({
+    where: { lineUserId },
+    include: {
+      settings: true
+    }
+  })
+
+  if (!user) {
+    throw new Error('User not found')
+  }
+
+  // Calculate date range
+  const endDate = dayjs()
+  const startDate = endDate.subtract(days, 'day')
+
+  // Get glucose logs within the date range
+  const logs = await prisma.glucoseLog.findMany({
+    where: {
+      userId: user.id,
+      recordedAt: {
+        gte: startDate.toDate(),
+        lte: endDate.toDate()
+      }
+    },
+    orderBy: {
+      recordedAt: 'asc'
+    }
+  })
+
+  // Get user's glucose target range
+  const targetMin = user.settings?.targetMin || 80
+  const targetMax = user.settings?.targetMax || 180
+
+  // Group data by period
+  const groupedData = new Map<string, { values: number[], count: number }>()
+
+  logs.forEach(log => {
+    let dateKey: string
+    
+    switch (type) {
+      case 'weekly':
+        dateKey = dayjs(log.recordedAt).startOf('week').format('YYYY-MM-DD')
+        break
+      case 'monthly':
+        dateKey = dayjs(log.recordedAt).startOf('month').format('YYYY-MM-DD')
+        break
+      default: // daily
+        dateKey = dayjs(log.recordedAt).format('YYYY-MM-DD')
+    }
+
+    if (!groupedData.has(dateKey)) {
+      groupedData.set(dateKey, { values: [], count: 0 })
+    }
+
+    const group = groupedData.get(dateKey)!
+    group.values.push(log.value)
+    group.count++
+  })
+
+  // Convert to history points
+  const historyPoints: GlucoseHistoryPoint[] = []
+  
+  for (const [date, data] of groupedData) {
+    const average = Math.round(data.values.reduce((sum, val) => sum + val, 0) / data.values.length)
+    
+    historyPoints.push({
+      date,
+      value: average,
+      count: data.count,
+      status: getGlucoseStatus(average, targetMin, targetMax)
+    })
+  }
+
+  // Sort by date
+  historyPoints.sort((a, b) => dayjs(a.date).unix() - dayjs(b.date).unix())
+
+  return historyPoints
+}

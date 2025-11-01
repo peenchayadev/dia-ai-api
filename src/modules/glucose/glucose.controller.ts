@@ -1,7 +1,7 @@
 import Elysia, { t } from "elysia"
 import { verifyJWT } from "../auth/auth.service"
 import { getBearerToken } from "../../utils/getBearerToken"
-import { getTodayGlucoseSummary, getTodayGlucoseReadings, updateGlucoseLog, deleteGlucoseLog } from "./glucose.service"
+import { getTodayGlucoseSummary, getTodayGlucoseReadings, updateGlucoseLog, deleteGlucoseLog, getGlucoseHistory } from "./glucose.service"
 
 export const glucoseRouter = new Elysia({ prefix: '/glucose' })
   .get('/summary/today', 
@@ -145,6 +145,39 @@ export const glucoseRouter = new Elysia({ prefix: '/glucose' })
           set.status = 404
           return { error: 'Glucose log not found or access denied' }
         }
+        set.status = 500
+        return { error: 'Internal server error' }
+      }
+    }
+  )
+  .get('/history',
+    async ({ query, headers, set }) => {
+      try {
+        // Get and verify JWT token
+        const token = getBearerToken(headers.authorization)
+        if (!token) {
+          set.status = 401
+          return { error: 'Authorization token required' }
+        }
+
+        const decoded = await verifyJWT(token)
+        if (!decoded) {
+          set.status = 401
+          return { error: 'Invalid or expired token' }
+        }
+
+        const lineUserId = decoded.lineUserId
+        const { period = '30', type = 'daily' } = query as { period?: string; type?: string }
+
+        // Get glucose history
+        const history = await getGlucoseHistory(lineUserId, parseInt(period), type as 'daily' | 'weekly' | 'monthly')
+
+        return {
+          success: true,
+          data: history
+        }
+      } catch (error) {
+        console.error('Error getting glucose history:', error)
         set.status = 500
         return { error: 'Internal server error' }
       }

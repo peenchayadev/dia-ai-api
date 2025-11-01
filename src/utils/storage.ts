@@ -17,15 +17,19 @@ export async function UploadImage(
   const filePath = `${userId}/${fileName}`
 
   const imageBuffer = Buffer.isBuffer(input) ? input : await streamToBuffer(input)
+  
+  console.log(`📤 Uploading image: ${filePath}, size: ${imageBuffer.length} bytes, type: ${mimeType}`)
 
-  const { error: uploadError } = await supabase.storage
+  const { data: uploadData, error: uploadError } = await supabase.storage
     .from(BUCKET)
     .upload(filePath, imageBuffer, { contentType: mimeType, upsert: opts?.upsert ?? false })
 
   if (uploadError) {
-    console.error('Error uploading image to storage:', uploadError)
-    throw new Error('Could not upload image to storage.')
+    console.error('❌ Error uploading image to storage:', uploadError)
+    throw new Error(`Could not upload image to storage: ${uploadError.message}`)
   }
+
+  console.log('✅ Upload successful:', uploadData)
 
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(filePath)
   if (!data?.publicUrl) throw new Error('Could not get public URL for the image.')
