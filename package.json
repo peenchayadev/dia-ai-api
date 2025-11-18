@@ -7,7 +7,9 @@
     "start": "bun run src/index.ts",
     "build": "bunx prisma generate",
     "test:reminders": "bun run src/cron/test-reminders.ts",
-    "test:glucose": "bun run src/cron/test-glucose-reminder.ts"
+    "test:glucose": "bun run src/cron/test-glucose-reminder.ts",
+    "deploy": "./deploy.sh",
+    "deploy:quick": "docker build --platform linux/amd64 -t dia-ai-api:latest . && docker tag dia-ai-api:latest asia-southeast1-docker.pkg.dev/totemic-beaker-475514-i0/dia-ai-api/dia-ai-api:latest && docker push asia-southeast1-docker.pkg.dev/totemic-beaker-475514-i0/dia-ai-api/dia-ai-api:latest && gcloud run deploy dia-ai-api --image=asia-southeast1-docker.pkg.dev/totemic-beaker-475514-i0/dia-ai-api/dia-ai-api:latest --region=asia-southeast1 --quiet"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.0",

@@ -11,3 +11,11 @@ export async function replyMessage(replyToken: string, text: string) {
 		console.error(`Failed to reply message:`, error)
 	}
 }
+
+export async function replyFlexMessage(replyToken: string, flexMessage: any) {
+	try {
+		await lineClient.replyMessage(replyToken, [flexMessage])
+	} catch (error) {
+		console.error(`Failed to reply flex message:`, error)
+	}
+}

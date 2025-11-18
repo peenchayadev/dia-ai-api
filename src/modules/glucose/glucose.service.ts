@@ -30,13 +30,32 @@ export interface GlucoseReading {
   note?: string | null
 }
 
-function getGlucoseStatus(value: number, targetMin: number = 80, targetMax: number = 180): GlucoseLevel {
-  if (value <= targetMin) {
+function getGlucoseStatus(value: number, period?: MealPeriod): GlucoseLevel {
+  // ต่ำกว่า 70 = ต่ำ
+  if (value < 70) {
     return GlucoseLevel.LOW
-  } else if (value >= targetMax) {
-    return GlucoseLevel.HIGH
+  }
+
+  // ตรวจสอบว่าเป็นก่อนอาหารหรือหลังอาหาร
+  const isBeforeMeal = period?.includes('BEFORE')
+
+  if (isBeforeMeal) {
+    // ก่อนอาหาร: 80-130 = ปกติ, > 130 = สูง
+    if (value > 130) {
+      return GlucoseLevel.HIGH
+    } else if (value >= 80 && value <= 130) {
+      return GlucoseLevel.NORMAL
+    } else {
+      // 70-79 = ปกติ (ค่อนข้างต่ำแต่ยังอยู่ในเกณฑ์)
+      return GlucoseLevel.NORMAL
+    }
   } else {
-    return GlucoseLevel.NORMAL
+    // หลังอาหาร: < 180 = ปกติ, >= 180 = สูง
+    if (value >= 180) {
+      return GlucoseLevel.HIGH
+    } else {
+      return GlucoseLevel.NORMAL
+    }
   }
 }
 
@@ -88,7 +107,7 @@ export async function getTodayGlucoseSummary(lineUserId: string): Promise<Glucos
     
     latestLevel = {
       value: latest?.value || 0,
-      status: getGlucoseStatus(latest?.value || 0, targetMin, targetMax),
+      status: getGlucoseStatus(latest?.value || 0, latest?.period),
       recordedAt: latest?.recordedAt || new Date()
     }
 
@@ -141,15 +160,11 @@ export async function getTodayGlucoseReadings(lineUserId: string): Promise<Gluco
     }
   })
 
-  // Get user's glucose target range
-  const targetMin = user.settings?.targetMin || 80
-  const targetMax = user.settings?.targetMax || 180
-
   // Format the readings
   const readings: GlucoseReading[] = todayLogs.map(log => ({
     id: log.id,
     value: log.value,
-    status: getGlucoseStatus(log.value, targetMin, targetMax),
+    status: getGlucoseStatus(log.value, log.period),
     recordedAt: log.recordedAt,
     period: log.period,
     note: log.note
@@ -194,18 +209,10 @@ export async function updateGlucoseLog(
     }
   })
 
-  // Get user's glucose target range for status calculation
-  const userSettings = await prisma.userSetting.findUnique({
-    where: { userId: user.id }
-  })
-  
-  const targetMin = userSettings?.targetMin || 80
-  const targetMax = userSettings?.targetMax || 180
-
   return {
     id: updatedLog.id,
     value: updatedLog.value,
-    status: getGlucoseStatus(updatedLog.value, targetMin, targetMax),
+    status: getGlucoseStatus(updatedLog.value, updatedLog.period),
     recordedAt: updatedLog.recordedAt,
     period: updatedLog.period,
     note: updatedLog.note
@@ -284,12 +291,8 @@ export async function getGlucoseHistory(
     }
   })
 
-  // Get user's glucose target range
-  const targetMin = user.settings?.targetMin || 80
-  const targetMax = user.settings?.targetMax || 180
-
   // Group data by period
-  const groupedData = new Map<string, { values: number[], count: number }>()
+  const groupedData = new Map<string, { values: number[], count: number, periods: MealPeriod[] }>()
 
   logs.forEach(log => {
     let dateKey: string
@@ -306,11 +309,12 @@ export async function getGlucoseHistory(
     }
 
     if (!groupedData.has(dateKey)) {
-      groupedData.set(dateKey, { values: [], count: 0 })
+      groupedData.set(dateKey, { values: [], count: 0, periods: [] })
     }
 
     const group = groupedData.get(dateKey)!
     group.values.push(log.value)
+    group.periods.push(log.period)
     group.count++
   })
 
@@ -319,12 +323,14 @@ export async function getGlucoseHistory(
   
   for (const [date, data] of groupedData) {
     const average = Math.round(data.values.reduce((sum, val) => sum + val, 0) / data.values.length)
+    // Use the most common period for status calculation, or undefined if mixed
+    const mostCommonPeriod = data.periods[0]
     
     historyPoints.push({
       date,
       value: average,
       count: data.count,
-      status: getGlucoseStatus(average, targetMin, targetMax)
+      status: getGlucoseStatus(average, mostCommonPeriod)
     })
   }
 

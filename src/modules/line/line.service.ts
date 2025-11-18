@@ -1,12 +1,12 @@
-import dayjs from 'dayjs'
 import { buffer as streamToBuffer } from 'node:stream/consumers'
 import { prisma } from '../../prisma/client'
 import type { WebhookEvent } from '@line/bot-sdk'
-import { lineClient, replyMessage } from './line.client'
+import { lineClient, replyMessage, replyFlexMessage } from './line.client'
 import { analyzeImage, analyzeTextFromUser, getDiabetesAnswer, transcribeAudioWithGoogle } from '../gemini/gemini.service'
-import { toHumanTiming, toNum } from '../../utils/globals'
+import { toHumanTiming, toNum, getGlucoseStatus } from '../../utils/globals'
 import type { AnalysisQuestion, AnalysisResult, AppUser } from './line.type'
 import { UploadImage } from '../../utils/storage'
+import dayjs from '../../plugins/dayjs.plugin'
 
 async function handleLogging(analysis: any, replyToken: string, user: any) {
 	try {
@@ -23,7 +23,220 @@ async function handleLogging(analysis: any, replyToken: string, user: any) {
 			return
 		}
 
-		await replyMessage(replyToken, `บันทึกค่าน้ำตาล ${analysis.value} ช่วง ${toHumanTiming(analysis.timing)} สำเร็จค่ะ! 👍`)
+		const glucoseStatus = getGlucoseStatus(analysis.value, analysis.timing)
+
+		const flexMessage = {
+			type: 'flex',
+			altText: `บันทึกค่าน้ำตาล ${analysis.value} สำเร็จ`,
+			contents: {
+				type: 'bubble',
+				size: 'mega',
+				body: {
+					type: 'box',
+					layout: 'vertical',
+					contents: [
+						{
+							type: 'box',
+							layout: 'vertical',
+							contents: [
+								{
+									type: 'box',
+									layout: 'horizontal',
+									contents: [
+										{
+											type: 'box',
+											layout: 'vertical',
+											contents: [
+												{
+													type: 'text',
+													text: '✓',
+													size: 'xl',
+													color: '#FFFFFF',
+													weight: 'bold',
+													align: 'center',
+													gravity: 'center'
+												}
+											],
+											width: '48px',
+											height: '48px',
+											backgroundColor: '#06C755',
+											cornerRadius: '24px',
+											justifyContent: 'center',
+											alignItems: 'center'
+										},
+										{
+											type: 'box',
+											layout: 'vertical',
+											contents: [
+												{
+													type: 'text',
+													text: 'บันทึกสำเร็จ',
+													weight: 'bold',
+													size: 'xl',
+													color: '#1A1A1A'
+												},
+												{
+													type: 'text',
+													text: 'ข้อมูลของคุณถูกบันทึกแล้ว',
+													size: 'xs',
+													color: '#8B8B8B',
+													margin: 'xs'
+												}
+											],
+											margin: 'md',
+											justifyContent: 'center'
+										}
+									],
+									paddingAll: '20px'
+								}
+							],
+							backgroundColor: '#F7F7F7',
+							cornerRadius: '16px',
+							margin: 'none'
+						},
+						{
+							type: 'box',
+							layout: 'vertical',
+							contents: [
+								{
+									type: 'box',
+									layout: 'vertical',
+									contents: [
+										{
+											type: 'text',
+											text: `${analysis.value}`,
+											size: '3xl',
+											weight: 'bold',
+											color: glucoseStatus.color,
+											align: 'center'
+										},
+										{
+											type: 'text',
+											text: 'mg/dL',
+											size: 'sm',
+											color: '#8B8B8B',
+											align: 'center',
+											margin: 'xs'
+										},
+										{
+											type: 'box',
+											layout: 'horizontal',
+											contents: [
+												{
+													type: 'text',
+													text: glucoseStatus.emoji,
+													size: 'md',
+													flex: 0
+												},
+												{
+													type: 'text',
+													text: glucoseStatus.status,
+													size: 'md',
+													weight: 'bold',
+													color: glucoseStatus.color,
+													margin: 'xs'
+												}
+											],
+											justifyContent: 'center',
+											margin: 'sm'
+										}
+									],
+									paddingAll: '24px',
+									backgroundColor: '#FFFFFF',
+									cornerRadius: '12px',
+									borderWidth: '1px',
+									borderColor: '#E8E8E8'
+								},
+								{
+									type: 'box',
+									layout: 'vertical',
+									contents: [
+										{
+											type: 'box',
+											layout: 'horizontal',
+											contents: [
+												{
+													type: 'text',
+													text: 'ช่วงเวลา',
+													size: 'sm',
+													color: '#666666',
+													margin: 'md',
+													flex: 2
+												},
+												{
+													type: 'text',
+													text: toHumanTiming(analysis.timing),
+													size: 'sm',
+													weight: 'bold',
+													color: '#1A1A1A',
+													align: 'end',
+													flex: 3
+												}
+											],
+											paddingAll: '16px',
+											backgroundColor: '#FAFAFA',
+											cornerRadius: '8px'
+										},
+										{
+											type: 'box',
+											layout: 'horizontal',
+											contents: [
+												{
+													type: 'text',
+													text: 'วันที่บันทึก',
+													size: 'sm',
+													color: '#666666',
+													margin: 'md',
+													flex: 2
+												},
+												{
+													type: 'text',
+													text: dayjs().tz('Asia/Bangkok').format('DD/MM/BBBB HH:mm'),
+													size: 'sm',
+													weight: 'bold',
+													color: '#1A1A1A',
+													align: 'end',
+													flex: 3
+												}
+											],
+											paddingAll: '16px',
+											backgroundColor: '#FAFAFA',
+											cornerRadius: '8px',
+											margin: 'sm'
+										}
+									],
+									margin: 'lg'
+								}
+							],
+							paddingAll: '20px'
+						}
+					],
+					paddingAll: '0px'
+				},
+				footer: {
+					type: 'box',
+					layout: 'vertical',
+					contents: [
+						{
+							type: 'button',
+							style: 'primary',
+							height: 'md',
+							action: {
+								type: 'uri',
+								label: '📊 ดูรายละเอียดเพิ่มเติม',
+								uri: 'https://liff.line.me/2007170340-0dNlao7P'
+							},
+							color: '#06C755',
+							gravity: 'center'
+						}
+					],
+					spacing: 'none',
+					paddingAll: '20px'
+				}
+			}
+		}
+
+		await replyFlexMessage(replyToken, flexMessage)
 	} catch (err) {
 		console.error('handleLogging error:', err)
 		await replyMessage(replyToken, 'ขออภัยค่ะ เกิดข้อผิดพลาดในการบันทึกข้อมูล')
@@ -91,7 +304,7 @@ export async function handleLineEvents(event: WebhookEvent) {
 				// Convert stream to buffer once and reuse it
 				const imageBuffer = await streamToBuffer(imageStream)
 				console.log(`📸 Image buffer size: ${imageBuffer.length} bytes`)
-				
+
 				const imageAnalysis = await analyzeImage(imageBuffer)
 
 				switch (imageAnalysis.image_type) {
@@ -113,6 +326,7 @@ export async function handleLineEvents(event: WebhookEvent) {
 						const foodReply =
 							`🥗 วิเคราะห์รูปภาพ:\n\n` +
 							`ชื่ออาหาร: ${imageAnalysis.food_name}\n` +
+							`น้ำตาลประมาณ: ${imageAnalysis.estimated_glucose}\n` +
 							`คาร์โบไฮเดรตประมาณ: ${imageAnalysis.estimated_carbs}\n\n` +
 							`คำแนะนำ: ${imageAnalysis.recommendation}`
 
@@ -124,17 +338,17 @@ export async function handleLineEvents(event: WebhookEvent) {
 						if (imageAnalysis.fasting_glucose || imageAnalysis.hba1c) {
 							const labImageUrl = await UploadImage(imageBuffer, user.id)
 							const testDate = imageAnalysis.record_date ? new Date(imageAnalysis.record_date) : new Date()
-							
+
 							// Create lab results for each available test
 							// Each result gets its own Media record with the same URL
 							const labResults = []
-							
+
 							// Fasting Glucose
 							if (imageAnalysis.fasting_glucose) {
-								const referenceRange = imageAnalysis.normal_range_min && imageAnalysis.normal_range_max 
+								const referenceRange = imageAnalysis.normal_range_min && imageAnalysis.normal_range_max
 									? `${imageAnalysis.normal_range_min}-${imageAnalysis.normal_range_max}`
 									: '70-99'
-								
+
 								labResults.push(
 									prisma.labResult.create({
 										data: {
@@ -152,7 +366,7 @@ export async function handleLineEvents(event: WebhookEvent) {
 									})
 								)
 							}
-							
+
 							// HbA1c
 							if (imageAnalysis.hba1c) {
 								labResults.push(
@@ -172,7 +386,7 @@ export async function handleLineEvents(event: WebhookEvent) {
 									})
 								)
 							}
-							
+
 							await Promise.all(labResults)
 							await replyMessage(replyToken, 'บันทึกข้อมูลผลตรวจเลือดของคุณเรียบร้อยแล้วค่ะ 🩺')
 						} else {
